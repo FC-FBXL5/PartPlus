@@ -30,7 +30,7 @@ class PartPlusWorkbench(Gui.Workbench):
 
     MenuText = translate("Workbench", "PartPlus")
     ToolTip = translate("Workbench", "PartPlus Workbench")
-    Icon = os.path.join(ICONSPATH, "PartPlusWorkbench.svg")
+    Icon = os.path.join(ICONSPATH, "PartPlus_Workbench.svg")
 
     COMMANDS = [
         "PrismoidShape",
