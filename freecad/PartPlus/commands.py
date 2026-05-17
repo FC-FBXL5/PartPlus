@@ -19,28 +19,30 @@ from .PartPlusTools import (
     BaseShape,
     ViewProviderPartPlus,
     #PartPlusShapeTaskPanel,
-    #updateTaskTitleIcon,
+    updateTaskTitleIcon,
     #svgToPixmap
 )  # Collection of shared general settings and methods
+from .PartPlusTaskPanels import (
+    PrismoidShapeTaskPanel,
+    ToroidShapeTaskPanel,
+    TransitionShapeTaskPanel,
+    DistributionShapeTaskPanel,
+)
 from .PartPlusPrismoidCmd import (
     PrismoidShape,
     PrismoidShapeViewProvider,
-    #PrismoidShapeTaskPanel
 )
 from .PartPlusToroidCmd import (
     ToroidShape,
     ToroidShapeViewProvider,
-    #ToroidShapeTaskPanel
 )
 from .PartPlusTransitionCmd import (
     TransitionShape,
     TransitionShapeViewProvider,
-    #TransitionShapeTaskPanel
 )
 from .PartPlusDistributionCmd import (
     DistributionShape,
     DistributionShapeViewProvider,
-    #DistributionShapeTaskPanel
 )
 
 #-------------------------------------------------------------------------------
@@ -101,11 +103,6 @@ class BaseCommand(object):
                         "PartDesign::FeaturePython",
                         cls.NAME
                     )
-                '''
-                objsub = App.ActiveDocument.addObject(
-                    "PartDesign::FeatureSubtractivePython",
-                    ("Sub"+ cls.NAME)
-                )'''
             else:
                 obj = App.ActiveDocument.addObject(
                     "Part::FeaturePython",
@@ -114,6 +111,11 @@ class BaseCommand(object):
 
             cls.PARTPLUS_VIEW_PROVIDER(obj.ViewObject, cls.Pixmap)
             cls.PARTPLUS_FUNCTION(obj)
+
+            if cls.PARTPLUS_TASK_PANEL is not None:
+                panel = cls.PARTPLUS_TASK_PANEL(obj)
+                updateTaskTitleIcon(panel)
+                Gui.Control.showDialog(panel)
 
             if body:
                 body.addObject(obj)
@@ -124,11 +126,6 @@ class BaseCommand(object):
             cls.PARTPLUS_FUNCTION(obj)
 
         App.ActiveDocument.recompute()
-        return
-        panel = cls.PARTPLUS_TASK_PANEL(obj)
-        updateTaskTitleIcon(panel)
-        Gui.Control.showDialog(panel)
-        return
 
     def GetResources(self):
         return {
@@ -141,7 +138,7 @@ class PrismoidShapeCommand(BaseCommand):
     NAME = "PrismoidShape"  # the document object
     PARTPLUS_FUNCTION = PrismoidShape  # the class conrolled by Data properties
     PARTPLUS_VIEW_PROVIDER = PrismoidShapeViewProvider  # the class conrolled by View properties
-    #PARTPLUS_TASK_PANEL = PrismoidShapeTaskPanel
+    PARTPLUS_TASK_PANEL = PrismoidShapeTaskPanel
     Pixmap = os.path.join(ICONSDIR, "PartPlus_Prismoid.svg")  # just a path...
     MenuText = QT_TRANSLATE_NOOP("PartPlus_PrismoidShape", "Prismoid Shape")
     ToolTip = QT_TRANSLATE_NOOP(
@@ -174,7 +171,7 @@ class ToroidShapeCommand(BaseCommand):
     NAME = "ToroidShape"
     PARTPLUS_FUNCTION = ToroidShape
     PARTPLUS_VIEW_PROVIDER = ToroidShapeViewProvider
-    #PARTPLUS_TASK_PANEL = ToroidShapeTaskPanel
+    PARTPLUS_TASK_PANEL = ToroidShapeTaskPanel
     Pixmap = os.path.join(ICONSDIR, "PartPlus_Toroid.svg")
     MenuText = QT_TRANSLATE_NOOP("PartPlus_ToroidShape", "Toroidal Shape")
     ToolTip = QT_TRANSLATE_NOOP(
@@ -207,7 +204,7 @@ class DistributionShapeCommand(BaseCommand):
     NAME = "DistributionShape"
     PARTPLUS_FUNCTION = DistributionShape
     PARTPLUS_VIEW_PROVIDER = DistributionShapeViewProvider
-    #PARTPLUS_TASK_PANEL = DistributionShapeTaskPanel
+    PARTPLUS_TASK_PANEL = DistributionShapeTaskPanel
     Pixmap = os.path.join(ICONSDIR, "PartPlus_Distribution.svg")
     MenuText = QT_TRANSLATE_NOOP(
         "PartPlus_DistributionShape",
@@ -231,7 +228,7 @@ class DistributionShapeCommand(BaseCommand):
         #- Check if the number of selected items is exactly two
         if len(Gui.Selection.getSelection()) < 2:
             return False
-        #- Check if the selection contains 2 0r more valid items
+        #- Check if the selection contains 2 or more valid items
         selected = Gui.Selection.getSelection()
         for selobj in selected:
             if not (
@@ -246,7 +243,7 @@ class TransitionShapeCommand(BaseCommand):
     NAME = "TransitionShape"
     PARTPLUS_FUNCTION = TransitionShape
     PARTPLUS_VIEW_PROVIDER = TransitionShapeViewProvider
-    #PARTPLUS_TASK_PANEL = TransitionShapeTaskPanel
+    PARTPLUS_TASK_PANEL = TransitionShapeTaskPanel
     Pixmap = os.path.join(ICONSDIR, "PartPlus_Transition.svg")
     MenuText = QT_TRANSLATE_NOOP("PartPlus_TransitionShape", "Transition Shape")
     ToolTip = QT_TRANSLATE_NOOP(
