@@ -31,7 +31,6 @@ from PySide.QtWidgets import (
 from .PartPlusTools import (
     BaseShape,
     ViewProviderPartPlus,
-    #PartPlusShapeTaskPanel,
     addLengthProperty,
     addBoolProperty,
     addAngleProperty,
@@ -141,7 +140,7 @@ class ToroidShape(BaseShape):
             "Symmetric",
             translate(
                 "App::Property",
-                "Equal extrusion on both sides of the profile plane"
+                "Equal distribution on both sides of the profile plane"
             ),
             False,
             "ParametersDistribution"
@@ -151,7 +150,7 @@ class ToroidShape(BaseShape):
             "Reverse",
             translate(
                 "App::Property",
-                "Reverses the extrusion direction"
+                "Reverses the distribution direction"
             ),
             False,
             "ParametersDistribution"
@@ -351,44 +350,13 @@ class ToroidShape(BaseShape):
         )
         #! It seems like moving the 3D geometry doesn't work
         #! toroid_shape.rotate(axis_position, axis_direction, -reverse_angle)
+        #! and so the profile_face ist moved beforehand instead
 
         return toroid_shape  # Returns a shape
-        '''
-            # Part.show(slice_wire[0], "slice_wire")
-
-            inner_strip = self.modifiedWire(
-                slice_wire[0],  # Original profile
-                profile_normal,
-                10,  # length, arbitrary value for the strip width
-                False,  # fillet_profile,
-                profile_radius,
-                profile_thickness,
-                "Outside",  # profile_offset,
-                1.0,  # sign, ???
-            )  # Returns a filleted (if possible) center strip of faces
-            # Part.show(inner_strip, "inner_strip")
-            slice_inner_wire = inner_strip.slice(profile_normal, dist)
-            # Part.show(slice_inner_wire[0], "slice_inner_wire")
-
-            sketch_face = Part.makeFace(
-                [slice_wire[0], slice_inner_wire[0]],
-                "Part::FaceMakerBullseye"
-            )
-
-        #- Move the 2D base geometry in reverse direction.
-        sketch_face.rotate(axis_position, axis_direction, -reverse_angle)
-
-        toroid_shape = sketch_face.revolve(
-            axis_position,
-            axis_direction,
-            (forward_angle + reverse_angle)
-        )
-        #! It seems like moving the 3D geometry doesn't work
-        #! toroid_shape.rotate(axis_position, axis_direction, -reverse_angle)
-
-        return toroid_shape  # Returns a shape'''
 
 if App.GuiUp:
+
+    from .PartPlusTaskPanels import ToroidShapeTaskPanel
 
     class ToroidShapeViewProvider(ViewProviderPartPlus):
         '''
@@ -400,9 +368,12 @@ if App.GuiUp:
             This one moves the sketches unter the object in the tree view
             '''
             objs = []
-            if hasattr(self, "Object") and hasattr(self.Object, "ProfileShape"): #"PrismaticShape"
+            if hasattr(self, "Object") and hasattr(self.Object, "ProfileShape"):
                 objs.append(self.Object.ProfileShape[0])
             return objs
+
+        def getTaskPanel(self, obj):
+            return ToroidShapeTaskPanel(obj)
 
         def loadSvg(self, shape_type = "Solid"):
             '''
