@@ -11,7 +11,7 @@ import FreeCADGui as Gui
 
 import Part
 import os
-import math  # to use some predefined conversions
+import math
 
 from PySide import QtCore
 from PySide import QtGui
@@ -31,7 +31,6 @@ from PySide.QtWidgets import (
 from .PartPlusTools import (
     BaseShape,
     ViewProviderPartPlus,
-    #PartPlusShapeTaskPanel,
     addLengthProperty,
     addBoolProperty,
     addAngleProperty,
@@ -140,7 +139,7 @@ class PrismoidShape(BaseShape):
             "Symmetric",
             translate(
                 "App::Property",
-                "Equal extrusion on both sides of the profile plane"
+                "Equal distribution on both sides of the profile plane"
             ),
             False,
             "ParametersDistribution"
@@ -150,7 +149,7 @@ class PrismoidShape(BaseShape):
             "Reverse",
             translate(
                 "App::Property",
-                "Reverses the extrusion direction"
+                "Reverses the distribution direction"
             ),
             False,
             "ParametersDistribution"
@@ -193,7 +192,7 @@ class PrismoidShape(BaseShape):
                 "Type of the created shape"
             ),
             SHAPE_TYPES,
-            "ParametersBaseProfile"
+            "ParametersShape"
         )
         addEnumProperty(
             obj,
@@ -236,7 +235,7 @@ class PrismoidShape(BaseShape):
 
         #- Finding the normal, x-, and y-direction of the profie shape
         matrix = profile_shape.getGlobalPlacement().Rotation
-        normal = (matrix.multVec(App.Vector(0, 0, 1))).normalize()
+        profile_normal = (matrix.multVec(App.Vector(0, 0, 1))).normalize()
         # Not used in this tool:
         # local_x_axis = (matrix.multVec(App.Vector(1, 0, 0))).normalize()
         # local_y_axis = (matrix.multVec(App.Vector(0, 1, 0))).normalize()
@@ -244,7 +243,7 @@ class PrismoidShape(BaseShape):
         wire_list = profile_shape.Shape.Wires[0]
         
         #- Set direction - should be adjustible in the future
-        direction_vector = normal
+        direction_vector = profile_normal
         
         if reverse_shape:
             direction_vector *= -1
@@ -294,7 +293,6 @@ class PrismoidShape(BaseShape):
                     False, # intersection
                 )
         else:
-            #wire_list = profile_shape.Shape.Wires[0]
             outer_strip = self.modifiedWire(
                 wire_list,  # Original profile
                 profile_normal,
@@ -329,10 +327,13 @@ class PrismoidShape(BaseShape):
         )
         #! It seems like moving the 3D geometry doesn't work
         #! prismoid_shape.translate(direction_vector * -reverse_length)
+        #! and so the profile_face ist moved beforehand instead
 
         return prismoid_shape  # Returns a shape
 
 if App.GuiUp:
+
+    from .PartPlusTaskPanels import PrismoidShapeTaskPanel
 
     class PrismoidShapeViewProvider(ViewProviderPartPlus):
         '''
@@ -344,9 +345,12 @@ if App.GuiUp:
             This one moves the sketches unter the object in the tree view
             '''
             objs = []
-            if hasattr(self, "Object") and hasattr(self.Object, "ProfileShape"): #"PrismaticShape"
+            if hasattr(self, "Object") and hasattr(self.Object, "ProfileShape"):
                 objs.append(self.Object.ProfileShape[0])
             return objs
+
+        def getTaskPanel(self, obj):
+            return PrismoidShapeTaskPanel(obj)
 
         def loadSvg(self, shape_type = "Solid"):
             '''
