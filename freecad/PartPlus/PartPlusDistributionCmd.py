@@ -31,7 +31,6 @@ from PySide.QtWidgets import (
 from .PartPlusTools import (
     BaseShape,
     ViewProviderPartPlus,
-    #PartPlusShapeTaskPanel,
     addLengthProperty,
     addBoolProperty,
     addAngleProperty,
@@ -70,22 +69,22 @@ class DistributionShape(BaseShape):
             "BaseSpine",
             QT_TRANSLATE_NOOP(
                 "App::Property",
-                "Shape defining the spine"
+                "2D shape defining the spine"
             )
         ).Spine = Gui.Selection.getSelection()[0]
         #- Create a ProfileShapes property and store the rest of
         #  the selected items (profile, and cross-sections) in it:
         obj.addProperty(
             "App::PropertyLinkSubList",
-            "ProfileShapes",
-            "Cross-Sections",
+            "Sections",
+            "BaseSections",
             QT_TRANSLATE_NOOP(
                 "App::Property",
                 "List of 2D shapes defining the profile and the cross-sections"
             )
-        ).ProfileShapes = Gui.Selection.getSelection()[1:]
+        ).Sections = Gui.Selection.getSelection()[1:]
         # This command could not be invoked as long as the selecction does not
-        # contain exactly one sketch, shape binder, or sub-shape binder.
+        # contain two or more sketches, shape binders, or sub-shape binders.
 
         #- Properties altered by this tool:
         self.addDistributionProperties(obj)
@@ -116,7 +115,7 @@ class DistributionShape(BaseShape):
                 "Thickness of a hollow profile"
             ),
             2.0,
-            "ParametersBaseProfile"
+            "ParametersSections"
         )
         addLengthProperty(
             obj,
@@ -126,7 +125,7 @@ class DistributionShape(BaseShape):
                 "Inner radius of automatically filleted profile edges"
             ),
             4.0,
-            "ParametersBaseProfile"
+            "ParametersSections"
         )
         addBoolProperty(
             obj,
@@ -136,7 +135,7 @@ class DistributionShape(BaseShape):
                 "Creates a hollow shape from a closed profile"
             ),
             False,
-            "ParametersBaseProfile"
+            "ParametersSections"
         )
         addBoolProperty(
             obj,
@@ -146,7 +145,7 @@ class DistributionShape(BaseShape):
                 "Applies fillets to sharp corners of the profile"
             ),
             True,
-            "ParametersBaseProfile"
+            "ParametersSections"
         )
         addBoolProperty(
             obj,
@@ -156,7 +155,7 @@ class DistributionShape(BaseShape):
                 "Toggles the Frenet mode for cross-sections"
             ),
             False,
-            "Cross-Sections"
+            "ParametersDistribution"
         )
         addEnumProperty(
             obj,
@@ -173,10 +172,10 @@ class DistributionShape(BaseShape):
             "ProfileOffset",
             translate(
                 "App::Property",
-                "Type of the created shape"
+                "Side of the created shape"
             ),
             PROFILE_OFFSETS,
-            "ParametersBaseProfile"
+            "ParametersSections"
         )
         addEnumProperty(
             obj,
@@ -186,7 +185,7 @@ class DistributionShape(BaseShape):
                 "The way the cross-section follows the spine"
             ),
             SPINE_MODES,
-            "BaseSpine"
+            "ParametersDistribution"
         )
 
     def execute(self, obj):
@@ -205,7 +204,7 @@ class DistributionShape(BaseShape):
         '''
         Creates a Distribution shape
         '''
-        profile_list = obj.ProfileShapes
+        # profile_list = obj.ProfileShapes - only used once
         spine_shape = obj.Spine
 
         profile_thickness = obj.ProfileThickness.Value
@@ -222,12 +221,17 @@ class DistributionShape(BaseShape):
         #- Extract segments of profile and cross-Sections
         closed_wires = []
         open_wires = []
-        for item in profile_list:
+        for item in obj.Sections: # was profile_list:
             wire_list = item[0].Shape.Wires[0]
+            matrix = item[0].getGlobalPlacement().Rotation
+            cross_section_normal = (
+                matrix.multVec(App.Vector(0, 0, 1))
+            ).normalize()
             if wire_list.isClosed():
-                closed_wires.append(wire_list)
+                closed_wires.append((wire_list, cross_section_normal))
             else:
-                open_wires.append(wire_list)
+                open_wires.append((wire_list, cross_section_normal))
+
         if closed_wires != [] and open_wires != []:
             Print("Operation aborted! - It is not allowed to mix open and closed wires!")
             return
@@ -238,51 +242,121 @@ class DistributionShape(BaseShape):
         elif spine_mode == "Round Corners":
             transition = 2
 
-        if (closed_wires != [] and not hollow_profile):
+        if closed_wires != []:
+            if not hollow_profile:
+                slice_list = []
+                for item in closed_wires:
+                    slice_list.append(item[0])
+                distribution_shape = spine_wire.makePipeShell(
+                    slice_list, # List of wires: Profile, cross-Sections
+                    True,  # isSolid
+                    frenet_mode,  # isFrenet
+                    transition,  # transition - 0: default, 1: right corners, 2:round corners
+                )
+            else:
+                outer_list = []
+                inner_list = []
+                for item in closed_wires:
+                    outer_strip = self.modifiedWire(
+                        item[0],  # Original profile
+                        item[1],
+                        10,  # length, arbitrary value for the strip width
+                        fillet_profile,
+                        profile_radius,
+                        profile_thickness,
+                        profile_offset,
+                        1.0,  # sign, ???
+                    )
+                    dist = item[0].Vertexes[0].Point.distanceToPlane(
+                        App.Vector(0, 0, 0), item[1]
+                    )
+                    slice_wire = outer_strip.slice(item[1], dist)
+                    outer_list.append(slice_wire[0])
+                    #Part.show(slice_wire[0], "slice_wire")
+                    inner_wire = slice_wire[0].makeOffset2D(
+                        -profile_thickness,  # offset
+                        1,  # join: 0 = arcs, 1 = tangent, 2 = intersection
+                        False,  # fill
+                        False,  # openResult
+                        False, # intersection
+                    )
+                    inner_list.append(inner_wire)
+                    #Part.show(inner_wire, "inner_wire")
+                outer_shape = spine_wire.makePipeShell(
+                    outer_list, # List of wires: Profile, cross-Sections
+                    True,  # isSolid
+                    frenet_mode,  # isFrenet
+                    transition,  # transition - 0: default, 1: right corners, 2:round corners
+                )
+                inner_shape = spine_wire.makePipeShell(
+                    inner_list, # List of wires: Profile, cross-Sections
+                    True,  # isSolid
+                    frenet_mode,  # isFrenet
+                    transition,  # transition - 0: default, 1: right corners, 2:round corners
+                )
+                distribution_shape = outer_shape.cut(inner_shape)
+        else:
+            slice_list = []
+            for item in open_wires:
+                outer_strip = self.modifiedWire(
+                    item[0],  # Original profile
+                    item[1],  # normal of the profile
+                    10,  # length, arbitrary value for the strip width
+                    fillet_profile,
+                    profile_radius,
+                    profile_thickness,
+                    profile_offset,
+                    1.0,  # sign, ???
+                )  # Returns a filleted (if possible) outer strip of faces
+                # Part.show(outer_strip, "outer_strip")
+
+                dist = item[0].Vertexes[0].Point.distanceToPlane(
+                    App.Vector(0, 0, 0), item[1]
+                )
+                slice_wire = outer_strip.slice(item[1], dist)
+
+                profile_shape = slice_wire[0].makeOffset2D(
+                    profile_thickness,  # offset
+                    1,  # join: 0 = arcs, 1 = tangent, 2 = intersection
+                    True,  # fill
+                    True,  # openResult
+                    False, # intersection
+                )
+                #Part.show(profile_shape, "distr_shape")
+                wire_list = profile_shape.OuterWire #.Shape.Wires[0]
+                slice_list.append(wire_list)
             distribution_shape = spine_wire.makePipeShell(
-                closed_wires, # List of wires: Profile, cross-Sections
+                slice_list, # List of wires: Profile, cross-Sections
                 True,  # isSolid
                 frenet_mode,  # isFrenet
                 transition,  # transition - 0: default, 1: right corners, 2:round corners
             )
-            return distribution_shape  # Returns a shape
-
-        print("Open profiles are not implemented yet!")
-        return
-    # To do: distribution shape from open profile(s)
+        return distribution_shape  # Returns a shape
 
 if App.GuiUp:
+
+    from .PartPlusTaskPanels import DistributionShapeTaskPanel
 
     class DistributionShapeViewProvider(ViewProviderPartPlus):
         '''
         Individual view provider features for distribution shape objects.
         '''
 
-        def loadIcon(self, shape_type = "Solid"):
-            '''Check for wrong getIcon calls'''
-            #- Load an svg file colored accordiing to the shape type
-            svg_bytes = bytearray(
-                self.loadSvg(shape_type),
-                encoding='utf-8'
-            )
-            #- Create a QImage from the svg file
-            qimage = QtGui.QImage.fromData(svg_bytes)
-            #- Create a QIcon via a QPixmap from the QImage
-            icon = QtGui.QIcon(QtGui.QPixmap(qimage))
-            return icon #self.icons[self.Object.ShapeStatus]
-
         def claimChildren(self):
             '''
             This one moves the sketches unter the object in the tree view
             '''
             objs = []
-            if hasattr(self, "Object") and hasattr(self.Object, "ProfileShapes"): #"PrismaticShape"
-                for item in self.Object.ProfileShapes:
+            if hasattr(self, "Object") and hasattr(self.Object, "Sections"):
+                for item in self.Object.Sections:
                     objs.append(item[0])
                 #objs.append(self.Object.ProfileShape)
-            if hasattr(self, "Object") and hasattr(self.Object, "Spine"): #"PrismaticShape"
+            if hasattr(self, "Object") and hasattr(self.Object, "Spine"):
                 objs.append(self.Object.Spine[0])
             return objs
+
+        def getTaskPanel(self, obj):
+            return DistributionShapeTaskPanel(obj)
 
         def loadSvg(self, shape_type = "Solid"):
             print("loadSvg, shape_type: ", shape_type)
