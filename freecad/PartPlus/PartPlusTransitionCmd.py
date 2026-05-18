@@ -31,7 +31,6 @@ from PySide.QtWidgets import (
 from .PartPlusTools import (
     BaseShape,
     ViewProviderPartPlus,
-    #PartPlusShapeTaskPanel,
     addLengthProperty,
     addBoolProperty,
     addAngleProperty,
@@ -85,7 +84,7 @@ class TransitionShape(BaseShape):
             )
         ).Sections = Gui.Selection.getSelection()[1:]
         # This command could not be invoked as long as the selecction does not
-        # contain exactly one sketch, shape binder, or sub-shape binder.
+        # contain two or more sketches, shape binders, or sub-shape binders.
 
         #- Properties altered by this tool:
         self.addTransitionProperties(obj)
@@ -107,25 +106,15 @@ class TransitionShape(BaseShape):
             "Button"
         )
         PROFILE_OFFSETS = ("Middle", "Inside", "Outside")
-        addAngleProperty(
-            obj,
-            "ToroidAngle",
-            translate(
-                "App::Property",
-                "Angle around the rotation axis"
-            ),
-            150.0,
-            "ToroidParameters"
-        )
         addLengthProperty(
             obj,
             "ProfileThickness",
             translate(
                 "App::Property",
-                "Thickness of a hollow profile"
+                "Thickness of a hollow profile or a rib"
             ),
             2.0,
-            "ToroidParameters"
+            "ParametersBaseProfile"
         )
         addLengthProperty(
             obj,
@@ -135,27 +124,7 @@ class TransitionShape(BaseShape):
                 "Inner radius of automatically filleted profile edges"
             ),
             4.0,
-            "ToroidParameters"
-        )
-        addBoolProperty(
-            obj,
-            "Symmetric",
-            translate(
-                "App::Property",
-                "Equal extrusion on both sides of the profile plane"
-            ),
-            False,
-            "ToroidParameters"
-        )
-        addBoolProperty(
-            obj,
-            "Reverse",
-            translate(
-                "App::Property",
-                "Reverses the extrusion direction"
-            ),
-            False,
-            "ToroidParameters"
+            "ParametersBaseProfile"
         )
         addBoolProperty(
             obj,
@@ -165,7 +134,7 @@ class TransitionShape(BaseShape):
                 "Creates a hollow shape from a closed profile"
             ),
             False,
-            "ToroidParameters"
+            "ParametersBaseProfile"
         )
         addBoolProperty(
             obj,
@@ -175,7 +144,17 @@ class TransitionShape(BaseShape):
                 "Applies fillets to sharp corners of the profile"
             ),
             True,
-            "ToroidParameters"
+            "ParametersBaseProfile"
+        )
+        addBoolProperty(
+            obj,
+            "RuledSurface",
+            translate(
+                "App::Property",
+                "Creates a ruled surface"
+            ),
+            False,
+            "ParametersShape"
         )
         addEnumProperty(
             obj,
@@ -185,17 +164,17 @@ class TransitionShape(BaseShape):
                 "Type of the created shape"
             ),
             SHAPE_TYPES,
-            "ToroidParameters"
+            "ParametersShape"
         )
         addEnumProperty(
             obj,
             "ProfileOffset",
             translate(
                 "App::Property",
-                "Type of the created shape"
+                "Side of the created shape"
             ),
             PROFILE_OFFSETS,
-            "ToroidParameters"
+            "ParametersBaseProfile"
         )
 
     def execute(self, obj):
@@ -216,62 +195,146 @@ class TransitionShape(BaseShape):
         Creates a Transition shape
         '''
         profile_shape = obj.ProfileShape[0]
-        cross_sections = obj.Sections
+        # cross_sections = obj.Sections - only used once
 
         profile_thickness = obj.ProfileThickness.Value
         profile_radius = obj.ProfileRadius.Value
         profile_offset = obj.ProfileOffset
         hollow_profile = obj.HollowProfile
         fillet_profile = obj.FilletProfile
+        ruled_surface = obj.RuledSurface
+
+        #- Finding the normal, x-, and y-direction of the profie shape
+        matrix = profile_shape.getGlobalPlacement().Rotation
+        profile_normal = (matrix.multVec(App.Vector(0, 0, 1))).normalize()
+        # Not used in this tool:
+        # profile_x_axis = (matrix.multVec(App.Vector(1, 0, 0))).normalize()
+        # profile_y_axis = (matrix.multVec(App.Vector(0, 1, 0))).normalize()
 
         #- Extract profile segments
         profile_wire = profile_shape.Shape.Wires[0]
         #- Extract segments of cross-Sections
-        closed_wires = [profile_wire]
-        open_wires = [profile_wire]
-        for item in cross_sections:
+        closed_wires = [(profile_wire, profile_normal)]
+        open_wires = [(profile_wire, profile_normal)]
+        for item in obj.Sections: # was cross_sections
             wire_list = item[0].Shape.Wires[0]
+            matrix = item[0].getGlobalPlacement().Rotation
+            cross_section_normal = (
+                matrix.multVec(App.Vector(0, 0, 1))
+            ).normalize()
             if wire_list.isClosed():
-                closed_wires.append(wire_list)
+                closed_wires.append((wire_list, cross_section_normal))
             else:
-                open_wires.append(wire_list)
+                open_wires.append((wire_list, cross_section_normal))
 
-        if closed_wires != [profile_wire] and open_wires != [profile_wire]:
+        if (closed_wires != [(profile_wire, profile_normal)]
+            and open_wires != [(profile_wire, profile_normal)]
+        ):
             print("Operation aborted! - It is not allowed to mix open and closed wires!")
             return
 
-        #print(len(closed_wires))
-        #Part.show(closed_wires[0])
+        if profile_wire.isClosed():
+            if not hollow_profile:
+                slice_list = []
+                for item in closed_wires:
+                    slice_list.append(item[0])
+                transition_shape = Part.makeLoft(
+                    slice_list,  # list of wires
+                    True,  # solid option
+                    ruled_surface,  # ruled option
+                    False,  # closed option
+                    3,  # degree option, maxDegree = 5
+                )
+            else:
+                outer_list = []
+                inner_list = []
+                for item in closed_wires:
+                    outer_strip = self.modifiedWire(
+                        item[0],  # Original profile
+                        item[1],
+                        10,  # length, arbitrary value for the strip width
+                        fillet_profile,
+                        profile_radius,
+                        profile_thickness,
+                        profile_offset,
+                        1.0,  # sign, ???
+                    )
+                    dist = item[0].Vertexes[0].Point.distanceToPlane(
+                        App.Vector(0, 0, 0), item[1]
+                    )
+                    slice_wire = outer_strip.slice(item[1], dist)
+                    outer_list.append(slice_wire[0])
+                    #Part.show(slice_wire[0], "slice_wire")
+                    inner_wire = slice_wire[0].makeOffset2D(
+                        -profile_thickness,  # offset
+                        1,  # join: 0 = arcs, 1 = tangent, 2 = intersection
+                        False,  # fill
+                        False,  # openResult
+                        False, # intersection
+                    )
+                    inner_list.append(inner_wire)
+                    #Part.show(inner_wire, "inner_wire")
+                outer_shape = Part.makeLoft(
+                    outer_list,  # list of wires
+                    True,  # solid option
+                    ruled_surface,  # ruled option
+                    False,  # closed option
+                    3,  # degree option, maxDegree = 5
+                )
+                inner_shape = Part.makeLoft(
+                    inner_list,  # list of wires
+                    True,  # solid option
+                    ruled_surface,  # ruled option
+                    False,  # closed option
+                    3,  # degree option, maxDegree = 5
+                )
+                transition_shape = outer_shape.cut(inner_shape)
+        else:
+            slice_list = []
+            for item in open_wires:
+                outer_strip = self.modifiedWire(
+                    item[0],  # Original profile
+                    item[1],  # normal of the profile
+                    10,  # length, arbitrary value for the strip width
+                    fillet_profile,
+                    profile_radius,
+                    profile_thickness,
+                    profile_offset,
+                    1.0,  # sign, ???
+                )  # Returns a filleted (if possible) outer strip of faces
+                # Part.show(outer_strip, "outer_strip")
 
-        if wire_list.isClosed():
-            transition_shape = Part.makeLoft(closed_wires, True)
+                dist = item[0].Vertexes[0].Point.distanceToPlane(
+                    App.Vector(0, 0, 0), item[1]
+                )
+                slice_wire = outer_strip.slice(item[1], dist)
 
-            return transition_shape  # Returns a shape
-
-        print("Open profiles are not implemented yet!")
-        return
-    # To do: transition shape from open profile(s)
+                profile_shape = slice_wire[0].makeOffset2D(
+                    profile_thickness,  # offset
+                    1,  # join: 0 = arcs, 1 = tangent, 2 = intersection
+                    True,  # fill
+                    True,  # openResult
+                    False, # intersection
+                )
+                # Part.show(profile_shape, "trans_shape")
+                wire_list = profile_shape.OuterWire #.Shape.Wires[0]
+                slice_list.append(wire_list)
+            transition_shape = Part.makeLoft(
+                slice_list,
+                True,
+                ruled_surface,
+            )
+        return transition_shape  # Returns a shape
 
 if App.GuiUp:
+
+    from .PartPlusTaskPanels import TransitionShapeTaskPanel
 
     class TransitionShapeViewProvider(ViewProviderPartPlus):
         '''
         Individual view provider features for transition shape objects.
         '''
-
-        def loadIcon(self, shape_type = "Solid"):
-            '''Check for wrong getIcon calls'''
-            #- Load an svg file colored accordiing to the shape type
-            svg_bytes = bytearray(
-                self.loadSvg(shape_type),
-                encoding='utf-8'
-            )
-            #- Create a QImage from the svg file
-            qimage = QtGui.QImage.fromData(svg_bytes)
-            #- Create a QIcon via a QPixmap from the QImage
-            icon = QtGui.QIcon(QtGui.QPixmap(qimage))
-            return icon #self.icons[self.Object.ShapeStatus]
-
+        
         def claimChildren(self):
             '''
             This one moves the sketches unter the object in the tree view
@@ -284,6 +347,9 @@ if App.GuiUp:
                 for item in self.Object.Sections:
                     objs.append(item[0])
             return objs
+
+        def getTaskPanel(self, obj):
+            return TransitionShapeTaskPanel(obj)
 
         def loadSvg(self, shape_type = "Solid"):
             '''
