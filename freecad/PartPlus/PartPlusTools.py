@@ -62,9 +62,7 @@ def addProperty(
         read_only: Property can not be edited.
         is_hiddden: Property is not shown in the Property View.
     '''
-    #print("addProperty object: ", object)
     if not hasattr(object, property_name):
-        #print("hasattr", object)
         if parameter_group == "Hidden":
             is_Hiddden = True
         object.addProperty(
@@ -224,7 +222,7 @@ class BaseShape:
         normal = None,
         length = 10.0,
         fillet_profile = False,
-        profile_radius = 4.0,
+        profile_radius = 2.0,
         profile_thickness = 2.0,
         profile_offset = "Middle",
         sign = 1.0
@@ -251,9 +249,8 @@ class BaseShape:
         if profile_thickness == 0.0:  # short-cut for 2D spine wires
             try:
                 result_extr = wire_extr.makeFillet(
-                    (profile_radius),
-                    6.0,  # Test for conical fillets
-                    wire_extr.Edges
+                    (profile_radius),  # radius1 (, optional radius2)
+                    wire_extr.Edges,  # edgeList
                 )  # May fail if fillets would consume whole edges
             except:
                 result_extr = wire_extr
@@ -410,6 +407,19 @@ class ViewProviderPartPlus:
     def attach(self, obj):
         self.Object = obj.Object  # from SheetMetal
 
+    def loadIcon(self, shape_type = "Solid"):
+        '''Check for wrong getIcon calls'''
+        #- Load an svg file colored accordiing to the shape type
+        svg_bytes = bytearray(
+            self.loadSvg(shape_type),
+            encoding='utf-8'
+        )
+        #- Create a QImage from the svg file
+        qimage = QtGui.QImage.fromData(svg_bytes)
+        #- Create a QIcon via a QPixmap from the QImage
+        icon = QtGui.QIcon(QtGui.QPixmap(qimage))
+        return icon #self.icons[self.Object.ShapeStatus]
+
     def getIcon(self):
         '''Returns the embedded icon'''
         self._check_attr()
@@ -441,8 +451,7 @@ class ViewProviderPartPlus:
     def unsetEdit(self, _vobj, _mode):
         Gui.Control.closeDialog()
         if hasattr(_vobj.Object, "ProfileShape"):
-            _vobj.Object.ProfileShape.ViewObject.Visibility = False
-            #_vobj.Object.ProfileShape[0].ViewObject.Visibility = False
+            _vobj.Object.ProfileShape[0].ViewObject.Visibility = False
         _vobj.Object.ViewObject.Visibility = True
         return False
 
